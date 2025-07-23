@@ -1,4 +1,3 @@
-// controllers/notificationController.js
 const db = require("../models/db");
 
 exports.getUserNotifications = (req, res) => {

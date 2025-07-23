@@ -14,7 +14,10 @@ const notificationRoutes = require("./routes/notificationRoutes");
 dotenv.config();
 
 const app = express();
-app.use(cors());
+// app.use(cors());
+app.use(cors({
+  origin: "https://ghazastore.shop",
+}));
 app.use(express.json());
 
 app.use("/api", productRoutes);

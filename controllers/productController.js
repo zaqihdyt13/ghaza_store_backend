@@ -47,26 +47,52 @@ const getAllProducts = (req, res) => {
 };
 
 const getPopularProducts = (req, res) => {
-  const limit = parseInt(req.query.limit) || 10; // default ambil 10 produk
+  const limit = parseInt(req.query.limit) || 10;
+  const minReviews = 3;
 
-  const sql = `
-    SELECT * FROM products
-    WHERE sold_count >= 5 
-      AND average_rating > 3 
-      AND total_reviews > 5
-    ORDER BY sold_count DESC
-    LIMIT ?
-  `;
+  const getGlobalAvgSql = `SELECT AVG(average_rating) AS globalAvgRating FROM products`;
 
-  db.query(sql, [limit], (err, result) => {
+  db.query(getGlobalAvgSql, (err, avgResult) => {
     if (err) {
       console.error(err);
       return res.status(500).json({
-        message: "Failed to fetch popular products",
+        message: "Failed to calculate global average rating",
         error: err,
       });
     }
-    res.status(200).json(result);
+
+    const globalAvgRating = avgResult[0].globalAvgRating || 0;
+
+    const sql = `
+      SELECT 
+        *,
+        (
+          (total_reviews / (total_reviews + ?)) * average_rating + 
+          (? / (total_reviews + ?)) * ?
+        ) AS weighted_rating
+      FROM products
+      WHERE sold_count >= 5 
+        AND average_rating > 3 
+        AND total_reviews > 5
+      ORDER BY weighted_rating DESC
+      LIMIT ?
+    `;
+
+    db.query(
+      sql,
+      [minReviews, minReviews, minReviews, globalAvgRating, limit],
+      (err, result) => {
+        if (err) {
+          console.error(err);
+          return res.status(500).json({
+            message: "Failed to fetch popular products",
+            error: err,
+          });
+        }
+
+        res.status(200).json(result);
+      }
+    );
   });
 };
 
@@ -213,95 +239,148 @@ const getAllSizes = (req, res) => {
 const getRecommendedProducts = (req, res) => {
   const productId = req.params.id;
 
-  // 1. Ambil produk beserta kategorinya
-  const currentProductQuery = `
-    SELECT p.*, pc.category_id
-    FROM products p
-    JOIN product_categories pc ON p.id = pc.product_id
-    WHERE p.id = ?
-    LIMIT 1
+  // Ambil kategori produk
+  const getCategoriesQuery = `
+    SELECT pc.category_id, c.name
+    FROM product_categories pc
+    JOIN categories c ON pc.category_id = c.id
+    WHERE pc.product_id = ?
   `;
 
-  db.query(currentProductQuery, [productId], (err, productResult) => {
-    if (err) {
+  db.query(getCategoriesQuery, [productId], (err, categories) => {
+    if (err)
       return res.status(500).json({ message: "Server error", error: err });
-    }
-
-    if (productResult.length === 0) {
+    if (categories.length === 0)
       return res.status(404).json({ message: "Product not found" });
-    }
 
-    const currentProduct = productResult[0];
-    const price = currentProduct.price;
-    const categoryId = currentProduct.category_id;
+    // Filter kategori bukan 'Pria' atau 'Wanita'
+    const filteredCategories = categories.filter(
+      (cat) =>
+        cat.name.toLowerCase() !== "pria" && cat.name.toLowerCase() !== "wanita"
+    );
+    const categoryIds = filteredCategories.map((cat) => cat.category_id);
 
-    // Ekstrak brand dari nama produk
-    const brand = currentProduct.name.split(" ")[0];
+    const getProductQuery = `SELECT * FROM products WHERE id = ? LIMIT 1`;
+    db.query(getProductQuery, [productId], (err, productResult) => {
+      if (err)
+        return res.status(500).json({ message: "Server error", error: err });
 
-    // 2. Tentukan range harga
-    let minPrice, maxPrice;
-    if (price < 100000) {
-      minPrice = 0;
-      maxPrice = 99999;
-    } else if (price <= 300000) {
-      minPrice = 100000;
-      maxPrice = 300000;
-    } else {
-      minPrice = 300001;
-      maxPrice = 10000000;
-    }
+      const currentProduct = productResult[0];
+      const price = currentProduct.price;
+      const brand = currentProduct.name.split(" ")[0];
 
-    // 3. Query berdasarkan kategori + harga
-    const categoryBasedQuery = `
-      SELECT DISTINCT p.*
-      FROM products p
-      JOIN product_categories pc ON p.id = pc.product_id
-      WHERE pc.category_id = ?
-        AND p.price BETWEEN ? AND ?
-        AND p.id != ?
-      LIMIT 5
-    `;
+      // === 1. Fuzzifikasi ===
+      const fuzzyMurah =
+        price <= 35000
+          ? 1
+          : price >= 100000
+          ? 0
+          : (100000 - price) / (100000 - 35000);
+      const fuzzySedang =
+        price <= 75000 || price >= 300000
+          ? 0
+          : price <= 150000
+          ? (price - 75000) / (150000 - 75000)
+          : price <= 300000
+          ? (300000 - price) / (300000 - 150000)
+          : 0;
+      const fuzzyMahal =
+        price <= 250000
+          ? 0
+          : price >= 300000
+          ? 1
+          : (price - 250000) / (300000 - 250000);
 
-    db.query(
-      categoryBasedQuery,
-      [categoryId, minPrice, maxPrice, productId],
-      (err, recommendationResult) => {
-        if (err) {
-          return res.status(500).json({ message: "Server error", error: err });
-        }
+      // === 2. Inferensi ===
+      const zLow = 50000;
+      const zMedium = 200000;
+      const zHigh = 650000;
 
-        // Jika hasil tidak kosong, kirim langsung
-        if (recommendationResult.length > 0) {
-          return res.json({
-            currentProduct,
-            recommendations: recommendationResult,
-          });
-        }
+      // === 3. Defuzzifikasi (Metode Centroid) ===
+      const numerator =
+        zLow * fuzzyMurah + zMedium * fuzzySedang + zHigh * fuzzyMahal;
+      const denominator = fuzzyMurah + fuzzySedang + fuzzyMahal;
+      const defuzzifiedPrice =
+        denominator === 0 ? price : numerator / denominator;
 
-        // 4. Jika tidak ditemukan, fallback ke brand + harga <=
-        const fallbackQuery = `
-          SELECT * FROM products
-          WHERE name LIKE ? AND price <= ? AND id != ?
-          LIMIT 5
-        `;
-        db.query(
-          fallbackQuery,
-          [`${brand}%`, price, productId],
-          (err, fallbackResult) => {
-            if (err) {
-              return res
-                .status(500)
-                .json({ message: "Server error", error: err });
-            }
+      // Tetapkan rentang harga fuzzy
+      let minPrice, maxPrice;
+      if (defuzzifiedPrice <= 100000) {
+        minPrice = 0;
+        maxPrice = 99999;
+      } else if (defuzzifiedPrice <= 300000) {
+        minPrice = 100000;
+        maxPrice = 300000;
+      } else {
+        minPrice = 300001;
+        maxPrice = 10000000;
+      }
 
+      // === 4. Strategi Fuzzy 1: Berdasarkan kategori
+      const placeholders = categoryIds.map(() => "?").join(",");
+      const recommendationQuery = `
+        SELECT DISTINCT p.*
+        FROM products p
+        JOIN product_categories pc ON p.id = pc.product_id
+        WHERE pc.category_id IN (${placeholders})
+          AND p.price BETWEEN ? AND ?
+          AND p.id != ?
+        LIMIT 5
+      `;
+
+      db.query(
+        recommendationQuery,
+        [...categoryIds, minPrice, maxPrice, productId],
+        (err, recommendationResult) => {
+          if (err)
+            return res
+              .status(500)
+              .json({ message: "Server error", error: err });
+
+          // === Hasil ditemukan dari strategi 1 ===
+          if (recommendationResult.length > 0) {
             return res.json({
               currentProduct,
-              recommendations: fallbackResult,
+              fuzzyMembership: {
+                murah: fuzzyMurah.toFixed(2),
+                sedang: fuzzySedang.toFixed(2),
+                mahal: fuzzyMahal.toFixed(2),
+                defuzzifiedPrice: Math.round(defuzzifiedPrice),
+              },
+              recommendations: recommendationResult,
             });
           }
-        );
-      }
-    );
+
+          // === Strategi Fuzzy 2: Jika kategori gagal, cari berdasarkan brand + rentang harga fuzzy ===
+          const fallbackQuery = `
+            SELECT * FROM products
+            WHERE name LIKE ? AND price BETWEEN ? AND ? AND id != ?
+            LIMIT 5
+          `;
+          db.query(
+            fallbackQuery,
+            [`${brand}%`, minPrice, maxPrice, productId],
+            (err, fallbackResult) => {
+              if (err)
+                return res
+                  .status(500)
+                  .json({ message: "Server error", error: err });
+
+              return res.json({
+                currentProduct,
+                fuzzyMembership: {
+                  murah: fuzzyMurah.toFixed(2),
+                  sedang: fuzzySedang.toFixed(2),
+                  mahal: fuzzyMahal.toFixed(2),
+                  defuzzifiedPrice: Math.round(defuzzifiedPrice),
+                },
+                recommendations: fallbackResult,
+              });
+            }
+          );
+        }
+      );
+    });
   });
 };
 
@@ -412,18 +491,8 @@ const createProduct = (req, res) => {
   }
 };
 
-// Contoh fungsi update produk di frontend
 const updateProduct = async (req, res) => {
   const productId = req.params.id;
-  // const {
-  //   name,
-  //   price,
-  //   description,
-  //   sold_count,
-  //   categories = [],
-  //   colors = [],
-  //   sizes = [],
-  // } = req.body;
 
   const { name, price, description, sold_count } = req.body;
 

@@ -13,7 +13,6 @@ const isValidEmail = (email) => {
 router.get("/profile", verifyToken, (req, res) => {
   const userId = req.user.id;
 
-  // const query = "SELECT id, username, email FROM users WHERE id = ?";
   const query = "SELECT id, username, email, role FROM users WHERE id = ?";
 
   db.query(query, [userId], (err, result) => {
@@ -35,16 +34,6 @@ router.get("/profile", verifyToken, (req, res) => {
     try {
       const token = req.headers.authorization?.split(" ")[1];
       const decodedToken = jwt.decode(token);
-
-      // res.status(200).json({
-      //   user: {
-      //     id: user.id,
-      //     username: user.username,
-      //     email: user.email,
-      //     iat: decodedToken?.iat,
-      //     exp: decodedToken?.exp,
-      //   },
-      // });
 
       res.status(200).json({
         user: {

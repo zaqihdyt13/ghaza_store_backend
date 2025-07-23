@@ -5,7 +5,6 @@ const jwt = require("jsonwebtoken");
 const SECRET = process.env.JWT_SECRET;
 
 exports.register = (req, res) => {
-  // const { username, email, password } = req.body;
   const { username, email, password, role = "user" } = req.body;
 
   const checkSql = "SELECT * FROM users WHERE email = ?";

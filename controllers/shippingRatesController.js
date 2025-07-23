@@ -1,6 +1,4 @@
-// controllers/shippingRatesController.js
-
-const db = require("../models/db"); // Sesuaikan dengan konfigurasi Anda
+const db = require("../models/db"); 
 
 const getShippingRates = (req, res) => {
   const query = "SELECT city, shipping_cost FROM shipping_rates";
