@@ -16,7 +16,7 @@ dotenv.config();
 const app = express();
 // app.use(cors());
 app.use(cors({
-  origin: "https://ghazastore.shop",
+  origin: "https://www.ghazastore.shop/",
 }));
 app.use(express.json());
 
