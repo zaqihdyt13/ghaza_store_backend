@@ -11,6 +11,7 @@ const db = mysql.createConnection({
   host: "yamabiko.proxy.rlwy.net",
   user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
+  // password: process.env.MYSQL_ROOT_PASSWORD,
   database: process.env.MYSQLDATABASE,
   port: 31260,
   multipleStatements: true,
