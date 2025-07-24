@@ -7,11 +7,12 @@ const db = mysql.createConnection({
   // user: process.env.DB_USER,
   // password: process.env.DB_PASSWORD,
   // database: process.env.DB_NAME,
-  host: process.env.MYSQLHOST,
+  // host: process.env.MYSQLHOST,
+  host: "yamabiko.proxy.rlwy.net",
   user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: process.env.MYSQLPORT,
+  port: 31260,
   multipleStatements: true,
   typeCast: function (field, next) {
     if (field.type === "NEWDECIMAL" || field.type === "DECIMAL") {
