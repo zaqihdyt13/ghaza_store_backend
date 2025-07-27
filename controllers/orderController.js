@@ -69,7 +69,7 @@ const createOrder = async (req, res) => {
         address,
       },
       callbacks: {
-        finish: "https://www.ghazastore.shop/", // <- Ganti ke URL frontend kamu
+        finish: "https://www.ghazastore.shop/myorder",
       },
     };
 
