@@ -68,9 +68,9 @@ const createOrder = async (req, res) => {
         email: "dummy@email.com",
         address,
       },
-      // callbacks: {
-      //   finish: "http://localhost:5173/", // <- Ganti ke URL frontend kamu
-      // },
+      callbacks: {
+        finish: "https://www.ghazastore.shop/", // <- Ganti ke URL frontend kamu
+      },
     };
 
     const snapResponse = await snap.createTransaction(parameter);
