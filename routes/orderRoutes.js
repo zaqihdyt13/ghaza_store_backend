@@ -12,7 +12,7 @@ const authenticateToken = require("../middleware/authMiddleware"); // Middleware
 
 router.post("/", authenticateToken, createOrder);
 router.get("/", getAllOrders);
-router.get("/", authenticateToken, getUserOrders);
+router.get("/orders", authenticateToken, getUserOrders);
 router.post("/midtrans-notification", handleNotification);
 router.get("/:id", getOrderDetail);
 router.put("/:id/status", updateOrderStatus);
