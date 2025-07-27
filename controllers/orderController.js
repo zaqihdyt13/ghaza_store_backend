@@ -240,9 +240,10 @@ const updateOrderStatus = async (req, res) => {
     }
 
     // 3. Ambil nama user dari tabel users
-    const [userResult] = await query("SELECT username FROM users WHERE id = ?", [
-      userId,
-    ]);
+    const [userResult] = await query(
+      "SELECT username FROM users WHERE id = ?",
+      [userId]
+    );
     const userName = userResult?.username || "Pelanggan";
 
     // 4. Jika status = shipped, kirim notifikasi
@@ -270,6 +271,57 @@ const updateOrderStatus = async (req, res) => {
   }
 };
 
+const getPaymentToken = async (req, res) => {
+  const { midtrans_order_id } = req.params;
+  const user_id = req.user.id;
+
+  try {
+    console.log("Getting payment token for:", midtrans_order_id);
+
+    // Cari order berdasarkan midtrans_order_id dan user_id untuk keamanan
+    const [order] = await query(
+      "SELECT * FROM orders WHERE midtrans_order_id = ? AND user_id = ? AND status = 'pending'",
+      [midtrans_order_id, user_id]
+    );
+
+    if (!order) {
+      return res.status(404).json({
+        success: false,
+        message: "Order tidak ditemukan atau sudah dibayar",
+      });
+    }
+
+    // Generate snap token baru
+    const parameter = {
+      transaction_details: {
+        order_id: midtrans_order_id,
+        gross_amount: order.total_price,
+      },
+      customer_details: {
+        first_name: `User-${user_id}`,
+        email: "dummy@email.com",
+        address: order.address,
+      },
+    };
+
+    const snapResponse = await snap.createTransaction(parameter);
+
+    res.status(200).json({
+      success: true,
+      snap_token: snapResponse.token,
+      order_id: order.id,
+      midtrans_order_id: midtrans_order_id,
+      total_price: order.total_price,
+    });
+  } catch (err) {
+    console.error("Payment Token Error:", err);
+    res.status(500).json({
+      success: false,
+      message: "Gagal mendapatkan token pembayaran",
+    });
+  }
+};
+
 module.exports = {
   createOrder,
   getAllOrders,
@@ -277,4 +329,5 @@ module.exports = {
   handleNotification,
   getOrderDetail,
   updateOrderStatus,
+  getPaymentToken,
 };
